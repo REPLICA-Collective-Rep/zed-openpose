@@ -161,6 +161,7 @@ int model_kp_number = 25;
 
 #define ENABLE_FLOOR_PLANE_DETECTION 1 // Might be disable to use older ZED SDK
 
+sl::Plane plane;
 // Debug options
 #define DISPLAY_BODY_BARYCENTER 0
 #define PATCH_AROUND_KEYPOINT 1
@@ -168,7 +169,6 @@ int model_kp_number = 25;
 bool initFloorZED(sl::Camera &zed) {
     bool init = false;
 #if ENABLE_FLOOR_PLANE_DETECTION
-    sl::Plane plane;
     sl::Transform resetTrackingFloorFrame;
     const int timeout = 20;
     int count = 0;
@@ -183,6 +183,7 @@ bool initFloorZED(sl::Camera &zed) {
             zed.getPosition(camera_pose, sl::REFERENCE_FRAME_WORLD);
             cout << "Floor found at : " << plane.getClosestDistance(camera_pose.pose_data.getTranslation()) << " m" << endl;
             zed.resetTracking(resetTrackingFloorFrame);
+
         }
         sl::sleep_ms(20);
     }
@@ -573,10 +574,39 @@ public:
     }
     ~OnExit() {
 
-        cout << "finishing json output " << jsonPath << endl;
-        string final =  "],\"info\":\"";
-        final += std::to_string(zed->getSVOPosition() + 1) + " processed out of " + std::to_string(zed->getSVONumberOfFrames());
-        final += "\"}";
+        cout << "Finishing JSON output " << jsonPath << endl;
+
+        string info = "\"info\":";
+        info += "\"" + std::to_string(zed->getSVOPosition() + 1) + " processed out of " + std::to_string(zed->getSVONumberOfFrames()) + "\"";
+//        string camera = "";
+//        camera +=
+
+        string pl = "\"plane\": {";
+        pl += "\"normal\":";
+        pl += "[" + std::to_string(plane.getNormal()[0]) + "," + std::to_string(plane.getNormal()[1]) + "," + std::to_string(plane.getNormal()[2]) + "],";
+        pl += "\"center\":";
+        pl += "[" + std::to_string(plane.getCenter()[0]) + "," + std::to_string(plane.getCenter()[1]) + "," + std::to_string(plane.getCenter()[2]) + "],";
+        pl += "\"extents\":";
+        pl += "[" + std::to_string(plane.getExtents()[0]) + "," + std::to_string(plane.getExtents()[1]) + "]";
+        pl += "}";
+
+        string pose = "\"pose\": {";
+        pose += "\"translation\":";
+        pose += "[" + std::to_string(camera_pose.getTranslation()[0]) + "," + std::to_string(camera_pose.getTranslation()[1]) + "," + std::to_string(camera_pose.getTranslation()[2]) + "],";
+        pose += "\"rotation\":";
+        pose += "[" + std::to_string(camera_pose.getRotationVector()[0]) + "," + std::to_string(camera_pose.getRotationVector()[1]) + "," + std::to_string(camera_pose.getRotationVector()[2]) + "]";
+        pose += "}";
+
+
+        string final =  "null],\"conf\":{";
+        final += info;
+        final += ",";
+        final += pl;
+        final += ",";
+        final += pose;
+        final += "}}";
+
+
         appendLineToFile(jsonPath, final);
     }
 };
@@ -620,9 +650,6 @@ void run() {
 
     appendLineToFile(jsonPath, "{\"frames\":[");
 
-    if (quit) {
-        cout << "QUITTING" << endl;
-    }
 
     while (!quit && zed.getSVOPosition() != zed.getSVONumberOfFrames() - 1) {
         INIT_TIMER
@@ -707,13 +734,12 @@ void run() {
             chrono_zed = false;
         }
     }
-
+//    close();
+//    quit = true;
+    return;
 }
 
 void close() {
-    cout << "QUITTING MAIN" << endl;
-
-
     quit = true;
     openpose_callback.join();
     zed_callback.join();
