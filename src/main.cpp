@@ -16,6 +16,7 @@
 
 // OpenPose dependencies
 #include <openpose/headers.hpp>
+//#include <openpose/filestream/bvhSaver.hpp>
 
 float thres_score = 0.6;
 
@@ -66,12 +67,73 @@ sl::Pose camera_pose;
 std::thread zed_callback, openpose_callback;
 std::mutex data_in_mtx, data_out_mtx;
 std::vector<op::Array<float>> netInputArray;
-op::Array<float> poseKeypoints;
-op::Point<int> imageSize, outputSize, netInputSize, netOutputSize;
-op::PoseModel poseModel;
 std::vector<double> scaleInputToNetInputs;
 PointObject cloud;
 PeoplesObject peopleObj;
+
+
+op::Array<float> poseKeypoints;
+op::Point<int> imageSize, outputSize, netInputSize, netOutputSize;
+op::PoseModel poseModel;
+
+op::WrapperStructOutput opStructOutput;
+//op::BvhSaver saver;
+//op::savePeopleJson();
+
+//op::savePeopleJson(const Array<float> &keypoints, const std::vector<std::vector<std::array<float, _Tp2> > > &candidates, const string &keypointName, const string &fileName, const bool humanReadable)
+
+/*
+ *
+ * WrapperStructOutput(
+ * double verbose - logger
+ *
+ * std::string writeKeypoint - keypoint output folder ("" for disabled)
+ * DataFormat writeKeypointFormat -  keypoint output format - DataFormat::Json (default), DataFormat::Xml and DataFormat::Yml
+ *
+ * std::string writeJson - OpenPose output in JSON format - 'people' or 'part_candidates' - ("" for disabled)
+ * std::string writeCocoJson - Location of COCO  format
+ *
+ * int writeCocoJsonVariants - Add 1 for body, add 2 for foot, 4 for face, and/or 8 for hands. Use 0 to use all the possible candidates.
+ * int writeCocoJsonVariant - experimental
+ *
+ * std::string writeImages - images folder ("" for disabled)
+ * std::string writeImagesFormat -png, jpg etc
+ *
+ * std::string writeVideo; - ("" for disabled)
+ *  double writeVideoFps - fps of recorded video
+ * bool writeVideoWithAudio - with Audio?
+ *
+ *  std::string writeHeatMaps;
+ * std::string writeHeatMapsFormat;
+ *
+ *  std::string writeVideo3D;
+ * std::string writeVideoAdam;
+ *
+ * std::string writeBvh - ("" for disabled)
+ *
+ *
+ *
+        WrapperStructOutput(
+            const double verbose = -1,
+            const std::string& writeKeypoint = "",
+            const DataFormat writeKeypointFormat = DataFormat::Xml,
+            const std::string& writeJson = "",
+            const std::string& writeCocoJson = "",
+            const int writeCocoJsonVariants = 1,
+            const int writeCocoJsonVariant = 1,
+            const std::string& writeImages = "",
+            const std::string& writeImagesFormat = "png",
+            const std::string& writeVideo = "",
+            const double writeVideoFps = -1.,
+            const bool writeVideoWithAudio = false,
+            const std::string& writeHeatMaps = "",
+            const std::string& writeHeatMapsFormat = "png",
+            const std::string& writeVideo3D = "",
+            const std::string& writeVideoAdam = "",
+            const std::string& writeBvh = "",
+            const std::string& udpHost = "",
+            const std::string& udpPort = "8051");
+*/
 
 bool quit = false;
 
@@ -101,7 +163,7 @@ int model_kp_number = 25;
 
 // Debug options
 #define DISPLAY_BODY_BARYCENTER 0
-#define PATCH_AROUND_KEYPOINT 1 
+#define PATCH_AROUND_KEYPOINT 1
 
 bool initFloorZED(sl::Camera &zed) {
     bool init = false;
@@ -130,7 +192,9 @@ bool initFloorZED(sl::Camera &zed) {
     return init;
 }
 
+
 int main(int argc, char **argv) {
+
 
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
@@ -170,7 +234,7 @@ int main(int argc, char **argv) {
     outputSize = op::flagsToPoint(FLAGS_output_resolution, "-1x-1");
     netInputSize = op::flagsToPoint(FLAGS_net_resolution, "-1x368");
 
-    cout << netInputSize.x << "x" << netInputSize.y << endl;
+//    cout << netInputSize.x << "x" << netInputSize.y << endl;
     netOutputSize = netInputSize;
     poseModel = op::flagsToPoseModel(FLAGS_model_pose);
 
@@ -252,7 +316,30 @@ sl::float4 getPatchIdx(const int &center_i, const int &center_j, sl::Mat &xyzrgb
     return out;
 }
 
-void fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
+static void appendLineToFile(string filepath, string line)
+{
+    std::ofstream file;
+    //can't enable exception now because of gcc bug that raises ios_base::failure with useless message
+    //file.exceptions(file.exceptions() | std::ios::failbit);
+    file.open(filepath, std::ios::out | std::ios::app);
+    if (file.fail())
+        throw std::ios_base::failure(std::strerror(errno));
+
+    //make sure write fails with exception if something is wrong
+    file.exceptions(file.exceptions() | std::ios::failbit | std::ifstream::badbit);
+
+    file << line << std::endl;
+}
+
+static void clearFile(string filepath) {
+
+    std::ofstream file;
+    //can't enable exception now because of gcc bug that raises ios_base::failure with useless message
+    //file.exceptions(file.exceptions() | std::ios::failbit);
+    file.open(filepath, std::ios::out | std::ios::trunc);
+    file.close();
+}
+string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
     // Common parameters needed
     const auto numberPeopleDetected = poseKeypoints.getSize(0);
     const auto numberBodyParts = poseKeypoints.getSize(1);
@@ -308,89 +395,140 @@ void fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
 
     std::vector<sl::float3> vertices;
     std::vector<sl::float3> clr;
+    string json = "";
 
-    for (int person = 0; person < numberPeopleDetected; person++) {
+    if (numberPeopleDetected > 0) {
 
-        std::map<int, sl::float4> keypoints_position; // 3D + score for each keypoints
+        json = "[";
 
-        sl::float4 center_gravity(0, 0, 0, 0);
-        int count = 0;
-        float score;
+        for (int person = 0; person < numberPeopleDetected; person++) {
 
-        for (int k = 0; k < numberBodyParts; k++) {
+            json += "{";
 
-            score = poseKeypoints[{person, k, 2}
-            ];
-            keypoints_position[k] = sl::float4(NAN, NAN, NAN, score);
 
-            if (score < FLAGS_render_threshold) continue; // skip low score
+            std::map<int, sl::float4> keypoints_position; // 3D + score for each keypoints
 
-            i = round(poseKeypoints[{person, k, 0}
-            ]);
-            j = round(poseKeypoints[{person, k, 1}
-            ]);
+            sl::float4 center_gravity(0, 0, 0, 0);
+            int count = 0;
+            float score;
 
-#if PATCH_AROUND_KEYPOINT
-            xyz.getValue<sl::float4>(i, j, &keypoints_position[k], sl::MEM_CPU);
-            if (!isfinite(keypoints_position[k].z))
-                keypoints_position[k] = getPatchIdx((const int) i, (const int) j, xyz);
-#else
-            xyz.getValue<sl::float4>(i, j, &keypoints_position[k], sl::MEM_CPU);
-#endif
-            keypoints_position[k].w = score; // the score was overridden by the getValue
+            for (int k = 0; k < numberBodyParts; k++) {
 
-            if (score >= FLAGS_render_threshold && isfinite(keypoints_position[k].z)) {
-                center_gravity += keypoints_position[k];
-                count++;
+                score = poseKeypoints[{person, k, 2}
+                ];
+                keypoints_position[k] = sl::float4(NAN, NAN, NAN, score);
+
+                if (score < FLAGS_render_threshold) continue; // skip low score
+
+                i = round(poseKeypoints[{person, k, 0}
+                ]);
+                j = round(poseKeypoints[{person, k, 1}
+                ]);
+
+    #if PATCH_AROUND_KEYPOINT
+                xyz.getValue<sl::float4>(i, j, &keypoints_position[k], sl::MEM_CPU);
+                if (!isfinite(keypoints_position[k].z))
+                    keypoints_position[k] = getPatchIdx((const int) i, (const int) j, xyz);
+    #else
+                xyz.getValue<sl::float4>(i, j, &keypoints_position[k], sl::MEM_CPU);
+    #endif
+                keypoints_position[k].w = score; // the score was overridden by the getValue
+
+                if (score >= FLAGS_render_threshold && isfinite(keypoints_position[k].z)) {
+                    center_gravity += keypoints_position[k];
+                    count++;
+                }
             }
+
+            ///////////////////////////
+            center_gravity.x /= (float) count;
+            center_gravity.y /= (float) count;
+            center_gravity.z /= (float) count;
+
+    #if DISPLAY_BODY_BARYCENTER
+            float size = 0.1;
+            vertices.emplace_back(center_gravity.x, center_gravity.y + size, center_gravity.z);
+            vertices.emplace_back(center_gravity.x, center_gravity.y - size, center_gravity.z);
+            clr.push_back(generateColor(person));
+            clr.push_back(generateColor(person));
+
+            vertices.emplace_back(center_gravity.x + size, center_gravity.y, center_gravity.z);
+            vertices.emplace_back(center_gravity.x - size, center_gravity.y, center_gravity.z);
+            clr.push_back(generateColor(person));
+            clr.push_back(generateColor(person));
+
+            vertices.emplace_back(center_gravity.x, center_gravity.y, center_gravity.z + size);
+            vertices.emplace_back(center_gravity.x, center_gravity.y, center_gravity.z - size);
+            clr.push_back(generateColor(person));
+            clr.push_back(generateColor(person));
+    #endif
+            ///////////////////////////
+
+
+            for (int part = 0; part < partsLink.size() - 1; part += 2) {
+
+
+                int partSrcIdx = partsLink[part];
+                int partDestIdx = partsLink[part + 1];
+
+                v1 = keypoints_position[partSrcIdx];
+                v2 = keypoints_position[partDestIdx];
+
+                // Filtering 3D Skeleton
+                // Compute euclidian distance
+                float distance = sqrt((v1.x - v2.x) * (v1.x - v2.x) + (v1.y - v2.y) * (v1.y - v2.y) + (v1.z - v2.z) * (v1.z - v2.z));
+
+                float distance_gravity_center = sqrt(pow((v2.x + v1.x)*0.5f - center_gravity.x, 2) +
+                        pow((v2.y + v1.y)*0.5f - center_gravity.y, 2) +
+                        pow((v2.z + v1.z)*0.5f - center_gravity.z, 2));
+                if (isfinite(distance_gravity_center) && distance_gravity_center < MAX_DISTANCE_CENTER && distance < MAX_DISTANCE_LIMB) {
+                    vertices.emplace_back(v1.x, v1.y, v1.z);
+                    vertices.emplace_back(v2.x, v2.y, v2.z);
+                    clr.push_back(generateColor(person));
+                    clr.push_back(generateColor(person));
+
+                    /*-- add body part --*/
+
+                    json += "\"";
+                    json += std::to_string(partSrcIdx);
+                    json += "\":[";
+                    json += std::to_string(partDestIdx);
+                    json += ",";
+                    json += std::to_string(v1.x);
+                    json += ",";
+                    json += std::to_string(v1.y);
+                    json += ",";
+                    json += std::to_string(v1.z);
+                    json += "],";
+                }
+            }
+
+            json = json.substr(0, json.size() - 1);
+
+            /*-- end person --*/
+
+            json += "},";
+
+        }
+        json = json.substr(0, json.size() - 1);
+        json += "],";
+
+        /*-- set openpose people object --*/
+
+        peopleObj.setVert(vertices, clr);
+
+        if (numberPeopleDetected > 0) {
+//        cout << "Num people: " << std::to_string(numberPeopleDetected) << " Num bodyparts: " << std::to_string(numberBodyParts) << " Total Verts: " << std::to_string(vertices.size()) << endl;
         }
 
-        ///////////////////////////
-        center_gravity.x /= (float) count;
-        center_gravity.y /= (float) count;
-        center_gravity.z /= (float) count;
-
-#if DISPLAY_BODY_BARYCENTER
-        float size = 0.1;
-        vertices.emplace_back(center_gravity.x, center_gravity.y + size, center_gravity.z);
-        vertices.emplace_back(center_gravity.x, center_gravity.y - size, center_gravity.z);
-        clr.push_back(generateColor(person));
-        clr.push_back(generateColor(person));
-
-        vertices.emplace_back(center_gravity.x + size, center_gravity.y, center_gravity.z);
-        vertices.emplace_back(center_gravity.x - size, center_gravity.y, center_gravity.z);
-        clr.push_back(generateColor(person));
-        clr.push_back(generateColor(person));
-
-        vertices.emplace_back(center_gravity.x, center_gravity.y, center_gravity.z + size);
-        vertices.emplace_back(center_gravity.x, center_gravity.y, center_gravity.z - size);
-        clr.push_back(generateColor(person));
-        clr.push_back(generateColor(person));
-#endif
-        ///////////////////////////  
-
-
-        for (int part = 0; part < partsLink.size() - 1; part += 2) {
-            v1 = keypoints_position[partsLink[part]];
-            v2 = keypoints_position[partsLink[part + 1]];
-
-            // Filtering 3D Skeleton
-            // Compute euclidian distance
-            float distance = sqrt((v1.x - v2.x) * (v1.x - v2.x) + (v1.y - v2.y) * (v1.y - v2.y) + (v1.z - v2.z) * (v1.z - v2.z));
-
-            float distance_gravity_center = sqrt(pow((v2.x + v1.x)*0.5f - center_gravity.x, 2) +
-                    pow((v2.y + v1.y)*0.5f - center_gravity.y, 2) +
-                    pow((v2.z + v1.z)*0.5f - center_gravity.z, 2));
-            if (isfinite(distance_gravity_center) && distance_gravity_center < MAX_DISTANCE_CENTER && distance < MAX_DISTANCE_LIMB) {
-                vertices.emplace_back(v1.x, v1.y, v1.z);
-                vertices.emplace_back(v2.x, v2.y, v2.z);
-                clr.push_back(generateColor(person));
-                clr.push_back(generateColor(person));
-            }
-        }
+    } else {
+        json = "null,";
     }
-    peopleObj.setVert(vertices, clr);
+
+    return json;
+//    op::savePeopleJson()
 }
+
 
 void fill_ptcloud(sl::Mat &xyzrgba) {
     std::vector<sl::float3> pts;
@@ -424,6 +562,26 @@ void fill_ptcloud(sl::Mat &xyzrgba) {
     cloud.setVert(pts, clr);
 }
 
+
+class OnExit {
+    string jsonPath;
+    sl::Camera * zed;
+public:
+    OnExit(string path, sl::Camera & z) {
+        jsonPath = path;
+        zed = &z;
+    }
+    ~OnExit() {
+
+        cout << "finishing json output " << jsonPath << endl;
+        string final =  "],\"info\":\"";
+        final += std::to_string(zed->getSVOPosition() + 1) + " processed out of " + std::to_string(zed->getSVONumberOfFrames());
+        final += "\"}";
+        appendLineToFile(jsonPath, final);
+    }
+};
+
+
 void run() {
     sl::RuntimeParameters rt;
     rt.enable_depth = 1;
@@ -454,6 +612,18 @@ void run() {
 
     bool chrono_zed = false;
 
+    string jsonPath = std::string(FLAGS_svo_path);
+    jsonPath =  jsonPath.substr(0,jsonPath.size() - 4) + ".json";
+    OnExit WillExit(jsonPath, zed);
+
+    clearFile(jsonPath);
+
+    appendLineToFile(jsonPath, "{\"frames\":[");
+
+    if (quit) {
+        cout << "QUITTING" << endl;
+    }
+
     while (!quit && zed.getSVOPosition() != zed.getSVONumberOfFrames() - 1) {
         INIT_TIMER
         if (need_new_image) {
@@ -465,7 +635,11 @@ void run() {
                 data_out_mtx.unlock();
                 zed.retrieveMeasure(depth_buffer, MEASURE::MEASURE_XYZRGBA, sl::MEM_CPU, image_width, image_height);
 
-                cout << zed.getCurrentFPS() << "        \r" << flush;
+                float done = (100.0/zed.getSVONumberOfFrames()) * (zed.getSVOPosition() + 1);
+
+                cout << jsonPath << " " << done << "%\r" << flush;
+
+//                cout << zed.getSVOPosition() + 1 << " out of " << zed.getSVONumberOfFrames() << endl;
 
                 inputImageRGBA = slMat2cvMat(img_buffer);
                 cv::cvtColor(inputImageRGBA, inputImage, cv::COLOR_RGBA2RGB);
@@ -479,6 +653,10 @@ void run() {
                     data_out_mtx.unlock();
                     outputArray = cvMatToOpOutput.createArray(inputImage, scaleInputToOutput, outputResolution);
                 }
+
+
+                /*-- Run openpose extraction --*/
+
                 data_in_mtx.lock();
                 netInputArray = cvMatToOpInput.createArray(inputImage, scaleInputToNetInputs, netInputSizes);
                 need_new_image = false;
@@ -493,7 +671,12 @@ void run() {
         // Render poseKeypoints
         if (data_out_mtx.try_lock()) {
 
-            fill_people_ogl(poseKeypoints, depth_buffer2);
+            string json = fill_people_ogl(poseKeypoints, depth_buffer2);
+
+
+            appendLineToFile(jsonPath, json);
+
+
             viewer.update(peopleObj);
 
             if (FLAGS_ogl_ptcloud) {
@@ -524,9 +707,13 @@ void run() {
             chrono_zed = false;
         }
     }
+
 }
 
 void close() {
+    cout << "QUITTING MAIN" << endl;
+
+
     quit = true;
     openpose_callback.join();
     zed_callback.join();
