@@ -1,4 +1,17 @@
+# Forked
+
+Fork created for extracting poses to JSON using hardcoded strings and `std::ofstream`, using Paperspace VM and 120 hours + of SVO files. 
+
+Using Ubuntu 18.04 with QTCreator:
+
+1. Open `CMakeLists.txt` as project config in QT, set environment variables inside the project config: **Projects > Build & Run > Run > Run Environment**
+2. Add environment variables, `LD_LIBRARY_PATH` to `$LD_LIBRARY_PATH:/path/to/cuda-10.0/lib64:/path/to/openpose/caffe/lib`
+3. Debug command line arguments in **Projects > Build & Run > Run**, ie. `-net_resolution 320x240 -model_pose MPI_4_layers  -svo_path /path/to/my/file.svo`
+4. Bash script to loop through a folder of SVOs, `./extractPoseJSON.sh`
+
+
 # OpenPose ZED
+
 
 <p align="center">
     <img src="OpenPose_ZED.gif", width="800">
