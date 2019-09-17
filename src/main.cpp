@@ -452,6 +452,14 @@ string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
             center_gravity.y /= (float) count;
             center_gravity.z /= (float) count;
 
+            json += "\"-1\":[";
+            json += std::to_string(center_gravity.x);
+            json += ",";
+            json += std::to_string(center_gravity.y);
+            json += ",";
+            json += std::to_string(center_gravity.z);
+            json += "],";
+
     #if DISPLAY_BODY_BARYCENTER
             float size = 0.1;
             vertices.emplace_back(center_gravity.x, center_gravity.y + size, center_gravity.z);
@@ -490,7 +498,7 @@ string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
                 float distance_gravity_center = sqrt(pow((v2.x + v1.x)*0.5f - center_gravity.x, 2) +
                         pow((v2.y + v1.y)*0.5f - center_gravity.y, 2) +
                         pow((v2.z + v1.z)*0.5f - center_gravity.z, 2));
-                if (isfinite(distance_gravity_center) && distance_gravity_center < MAX_DISTANCE_CENTER && distance < MAX_DISTANCE_LIMB) {
+                if (isfinite(distance_gravity_center)) {
                     vertices.emplace_back(v1.x, v1.y, v1.z);
                     vertices.emplace_back(v2.x, v2.y, v2.z);
                     clr.push_back(generateColor(person));

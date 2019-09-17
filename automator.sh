@@ -5,8 +5,10 @@ is_test=false
 is_clearing=false
 use_email=""
 email_freq=3
+resolution="1280x720"
+model="BODY_25"
 
-while getopts "i:e:s:tch" option; do
+while getopts "r:m:i:e:s:tch" option; do
   case $option in 
     h ) 
 		echo "-s [source directory of SVO files]"
@@ -14,6 +16,8 @@ while getopts "i:e:s:tch" option; do
 		echo "-t [create and test dummy SVO files]"
 		echo "-e [email address for sending log.txt notifications]"
 		echo "-i [email frequency, ie. send email every nth file]"
+		echo "-r [resolution, ie. 1280x720]"
+		echo "-m [model, ie. BODY_25]"
 		exit 1
     ;;
     c ) 
@@ -34,6 +38,14 @@ while getopts "i:e:s:tch" option; do
 	;;
     e )
 		use_email="$OPTARG"
+
+	;;
+    r )
+		resolution=$OPTARG
+
+	;;
+    m )
+		model="$OPTARG"
 
 	;;
   esac
@@ -97,8 +109,9 @@ function send_email {
 
 for f in $root_dir*.svo
 do
-	log "[$current_index/$total_files] opening $f"
-	./build/zed_openpose -net_resolution 320x240 -model_pose MPI_4_layers  -svo_path $f
+	log "[$current_index/$total_files] opening $f at $resolution $model"
+	./build/zed_openpose -net_resolution $resolution -model_pose $model  -svo_path $f
+	log "[$current_index/$total_files] finished $f"
 	mv $f $dest_dir
 
 	if [[ $is_test ]]; then
@@ -108,8 +121,8 @@ do
 	if ! (($current_index % $email_freq)) && (( current_index != 0 )) ; then
 		send_email  # using https://curlmail.co
 	fi
-
 	((current_index++))
+
 done
 
 send_email # using https://curlmail.co
