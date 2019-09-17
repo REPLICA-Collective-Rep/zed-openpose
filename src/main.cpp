@@ -42,20 +42,23 @@ DEFINE_double(scale_gap, 0.3, "Scale gap between scales. No effect unless scale_
         " `net_resolution` by your desired initial scale.");
 DEFINE_int32(scale_number, 1, "Number of scales to average.");
 // OpenPose Rendering
-DEFINE_bool(disable_blending, false, "If enabled, it will render the results (keypoint skeletons or heatmaps) on a black"
+DEFINE_bool(disable_blending, true, "If enabled, it will render the results (keypoint skeletons or heatmaps) on a black"
         " background, instead of being rendered into the original image. Related: `part_to_show`,"
         " `alpha_pose`, and `alpha_pose`.");
-DEFINE_double(render_threshold, 0.12, "Only estimated keypoints whose score confidences are higher than this threshold will be"
+DEFINE_double(render_threshold, 0.1, "Only estimated keypoints whose score confidences are higher than this threshold will be"
         " rendered. Generally, a high threshold (> 0.5) will only render very clear body parts;"
         " while small thresholds (~0.1) will also output guessed and occluded keypoints, but also"
         " more false positives (i.e. wrong detections).");
 DEFINE_double(alpha_pose, 0.6, "Blending factor (range 0-1) for the body part rendering. 1 will show it completely, 0 will"
         " hide it. Only valid for GPU rendering.");
 DEFINE_string(svo_path, "", "SVO filepath");
-DEFINE_bool(ogl_ptcloud, true, "Display the point cloud in the OpenGL window");
+DEFINE_bool(ogl_ptcloud, false, "Display the point cloud in the OpenGL window");
 DEFINE_bool(estimate_floor_plane, true, "Initialize the camera position from the floor plan detected in the scene");
 DEFINE_bool(opencv_display, true, "Enable the 2D view of openpose output");
 DEFINE_bool(depth_display, false, "Enable the depth display with openCV");
+
+const float MAX_DISTANCE_LIMB = 99999; //0.8;
+const float MAX_DISTANCE_CENTER = 99999; //1.5;
 
 // Using std namespace
 using namespace std;
@@ -142,8 +145,6 @@ GLViewer viewer;
 
 const int MAX_CHAR = 128;
 const sl::UNIT unit = sl::UNIT_METER;
-const float MAX_DISTANCE_LIMB = 1; //0.8;
-const float MAX_DISTANCE_CENTER = 1.8; //1.5;
 
 // Sample functions
 void startZED();
@@ -480,6 +481,8 @@ string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
                 v1 = keypoints_position[partSrcIdx];
                 v2 = keypoints_position[partDestIdx];
 
+                float score = v1.w;
+
                 // Filtering 3D Skeleton
                 // Compute euclidian distance
                 float distance = sqrt((v1.x - v2.x) * (v1.x - v2.x) + (v1.y - v2.y) * (v1.y - v2.y) + (v1.z - v2.z) * (v1.z - v2.z));
@@ -498,13 +501,15 @@ string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
                     json += "\"";
                     json += std::to_string(partSrcIdx);
                     json += "\":[";
-                    json += std::to_string(partDestIdx);
-                    json += ",";
                     json += std::to_string(v1.x);
                     json += ",";
                     json += std::to_string(v1.y);
                     json += ",";
                     json += std::to_string(v1.z);
+                    json += ",";
+                    json += std::to_string(v1.w);
+                    json += ",";
+                    json += std::to_string(partDestIdx);
                     json += "],";
                 }
             }
@@ -671,19 +676,16 @@ void run() {
                 float minsDone = (zed.getSVOPosition()/60.0);
                 float minsTotal = (zed.getSVONumberOfFrames()/60.0);
 
-                cout << jsonPath << " " << done << " " << minsDone << " of " << minsTotal << " " << "%\r" << flush;
+                cout << "Writing to " << jsonPath << " " << done << "% " << zed.getSVOPosition() << "/" << zed.getSVONumberOfFrames() << "] " << "minutes\r" << flush;
 
 //                cout << zed.getSVOPosition() + 1 << " out of " << zed.getSVONumberOfFrames() << endl;
 
                 inputImageRGBA = slMat2cvMat(img_buffer);
                 cv::cvtColor(inputImageRGBA, inputImage, cv::COLOR_RGBA2RGB);
 
-                /*--
 
                 if (FLAGS_depth_display)
                     zed.retrieveImage(depth_img_buffer, VIEW::VIEW_DEPTH, sl::MEM_CPU, image_width, image_height);
-                --*/
-                /*--
 
                 if (FLAGS_opencv_display) {
                     data_out_mtx.lock();
@@ -691,8 +693,6 @@ void run() {
                     data_out_mtx.unlock();
                     outputArray = cvMatToOpOutput.createArray(inputImage, scaleInputToOutput, outputResolution);
                 }
-
-                --*/
 
 
                 /*-- Run openpose extraction --*/
@@ -719,7 +719,6 @@ void run() {
 
             viewer.update(peopleObj);
 
-            /*-- 
 
             if (FLAGS_ogl_ptcloud) {
                 fill_ptcloud(depth_buffer2);
@@ -741,7 +740,7 @@ void run() {
                     cv::imshow("Depth", slMat2cvMat(depth_img_buffer));
 
                 cv::waitKey(10);
-            --*/
+             }
         }
 
         if (chrono_zed) {
