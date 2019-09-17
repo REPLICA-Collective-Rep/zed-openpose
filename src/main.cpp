@@ -676,7 +676,7 @@ void run() {
                 float minsDone = (zed.getSVOPosition()/60.0);
                 float minsTotal = (zed.getSVONumberOfFrames()/60.0);
 
-                cout << "Writing to " << jsonPath << " " << done << "% " << zed.getSVOPosition() << "/" << zed.getSVONumberOfFrames() << "] " << "minutes\r" << flush;
+                cout << "Writing to " << jsonPath << " " << done << "% " << zed.getSVOPosition() << "/" << zed.getSVONumberOfFrames() << " " << "frames\r" << flush;
 
 //                cout << zed.getSVOPosition() + 1 << " out of " << zed.getSVONumberOfFrames() << endl;
 

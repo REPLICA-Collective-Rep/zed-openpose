@@ -98,6 +98,7 @@ function send_email {
 for f in $root_dir*.svo
 do
 	log "[$current_index/$total_files] opening $f"
+	./build/zed_openpose -net_resolution 320x240 -model_pose MPI_4_layers  -svo_path $f
 	mv $f $dest_dir
 
 	if [[ $is_test ]]; then

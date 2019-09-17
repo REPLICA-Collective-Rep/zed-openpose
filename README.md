@@ -1,14 +1,32 @@
-# Forked
+# OpenPose ZED Extractor
 
-Fork created for extracting poses to JSON using hardcoded strings and `std::ofstream`, using Paperspace VM and 120 hours + of SVO files. 
+This is a forked example project used for extracting pose and skeleton data into JSON, with an accompanying bash script for automation. It has been used on a Paperspace VM with over 120 hours of footage! 
 
-Using Ubuntu 18.04 with QTCreator:
+## Build
 
-1. Open `CMakeLists.txt` as project config in QT, set environment variables inside the project config: **Projects > Build & Run > Run > Run Environment**
-2. Add environment variables, `LD_LIBRARY_PATH` to `$LD_LIBRARY_PATH:/path/to/cuda-10.0/lib64:/path/to/openpose/caffe/lib`
-3. Debug command line arguments in **Projects > Build & Run > Run**, ie. `-net_resolution 320x240 -model_pose MPI_4_layers  -svo_path /path/to/my/file.svo`
-4. Bash script to loop through a folder of SVOs, `./extractPoseJSON.sh`
+Building executable in QTCreator rather than CMake:
 
+1. Use `CMakeLists.txt` as project config in QT
+2. Set environment variables inside the project config: **Projects > Build & Run > Run > Run Environment** , `LD_LIBRARY_PATH` to `$LD_LIBRARY_PATH:/path/to/cuda-10.0/lib64:/path/to/openpose/caffe/lib`
+3. Add command line arguments for testing in **Projects > Build & Run > Run**, ie. `-net_resolution 320x240 -model_pose MPI_4_layers  -svo_path /path/to/my/file.svo`
+
+
+## Usage
+
+The script `automator.sh` will loop through a directory of SVOs, generating JSON files, and moving completed and failed extractions to `completed` and `failed` folders. Email updates will be sent via curlmail.co if an email address is supplied.
+
+```
+
+# -s [source directory of SVO files]
+# -c [clear log.txt file when the script begins]
+# -t [create and test dummy SVO files]
+# -e [email address for sending log.txt notifications]
+# -i [email frequency, ie. send email every nth file]
+
+./automator.sh -s ~/Desktop/bin/03_ZED/ -c -e gilbert.sinnott@mailbox.org
+
+
+```
 
 # OpenPose ZED
 
