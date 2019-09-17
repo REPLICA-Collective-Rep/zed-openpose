@@ -255,6 +255,11 @@ int main(int argc, char **argv) {
     // Set the display callback
     glutCloseFunc(close);
     glutMainLoop();
+
+
+    cout << "ending" << endl;
+
+
     return 0;
 }
 
@@ -644,7 +649,7 @@ void run() {
 
     string jsonPath = std::string(FLAGS_svo_path);
     jsonPath =  jsonPath.substr(0,jsonPath.size() - 4) + ".json";
-    OnExit WillExit(jsonPath, zed);
+//    OnExit WillExit(jsonPath, zed);
 
     clearFile(jsonPath);
 
@@ -731,11 +736,49 @@ void run() {
 
         if (chrono_zed) {
             //STOP_TIMER("ZED")
+//            ofLog() << "Stop chrono";
             chrono_zed = false;
         }
     }
-//    close();
-//    quit = true;
+
+
+    cout << "Finishing JSON output " << jsonPath << endl;
+
+    string info = "\"info\":";
+    info += "\"" + std::to_string(zed.getSVOPosition() + 1) + " processed out of " + std::to_string(zed.getSVONumberOfFrames()) + "\"";
+//        string camera = "";
+//        camera +=
+
+    string pl = "\"plane\": {";
+    pl += "\"normal\":";
+    pl += "[" + std::to_string(plane.getNormal()[0]) + "," + std::to_string(plane.getNormal()[1]) + "," + std::to_string(plane.getNormal()[2]) + "],";
+    pl += "\"center\":";
+    pl += "[" + std::to_string(plane.getCenter()[0]) + "," + std::to_string(plane.getCenter()[1]) + "," + std::to_string(plane.getCenter()[2]) + "],";
+    pl += "\"extents\":";
+    pl += "[" + std::to_string(plane.getExtents()[0]) + "," + std::to_string(plane.getExtents()[1]) + "]";
+    pl += "}";
+
+    string pose = "\"pose\": {";
+    pose += "\"translation\":";
+    pose += "[" + std::to_string(camera_pose.getTranslation()[0]) + "," + std::to_string(camera_pose.getTranslation()[1]) + "," + std::to_string(camera_pose.getTranslation()[2]) + "],";
+    pose += "\"rotation\":";
+    pose += "[" + std::to_string(camera_pose.getRotationVector()[0]) + "," + std::to_string(camera_pose.getRotationVector()[1]) + "," + std::to_string(camera_pose.getRotationVector()[2]) + "]";
+    pose += "}";
+
+
+    string final =  "null],\"conf\":{";
+    final += info;
+    final += ",";
+    final += pl;
+    final += ",";
+    final += pose;
+    final += "}}";
+
+
+    appendLineToFile(jsonPath, final);
+//    cout << "run ended" << endl;
+    close();
+    quit = true;
     return;
 }
 
