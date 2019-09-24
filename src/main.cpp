@@ -64,6 +64,8 @@ const float MAX_DISTANCE_CENTER = 99999; //1.5;
 using namespace std;
 using namespace sl;
 
+int jsonCounter = 0;
+
 // Create ZED objects
 sl::Camera zed;
 sl::Pose camera_pose;
@@ -406,7 +408,6 @@ string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
 
     if (numberPeopleDetected > 0) {
 
-        json = "[";
 
         for (int person = 0; person < numberPeopleDetected; person++) {
 
@@ -541,7 +542,7 @@ string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
         }
 
     } else {
-        json = "null,";
+        json = "{},";
     }
 
     return json;
@@ -684,7 +685,6 @@ void run() {
                 float minsDone = (zed.getSVOPosition()/60.0);
                 float minsTotal = (zed.getSVONumberOfFrames()/60.0);
 
-                cout << "Writing to " << jsonPath << " " << done << "% " << zed.getSVOPosition() << "/" << zed.getSVONumberOfFrames() << " " << "frames\r" << flush;
 
 //                cout << zed.getSVOPosition() + 1 << " out of " << zed.getSVONumberOfFrames() << endl;
 
@@ -708,10 +708,20 @@ void run() {
                 data_in_mtx.lock();
                 netInputArray = cvMatToOpInput.createArray(inputImage, scaleInputToNetInputs, netInputSizes);
                 need_new_image = false;
+
+                string json = fill_people_ogl(poseKeypoints, depth_buffer2);
+                appendLineToFile(jsonPath, json);
+                jsonCounter += 1;
+
                 data_in_mtx.unlock();
 
                 ready_to_start = true;
                 chrono_zed = true;
+
+
+                cout << "writing to " << jsonPath << " " << done << "% " << jsonCounter << "/" << zed.getSVONumberOfFrames() << " " << "frames\r" << flush;
+
+
             } else sl::sleep_ms(1);
         } else sl::sleep_ms(1);
 
@@ -719,10 +729,6 @@ void run() {
         // Render poseKeypoints
         if (data_out_mtx.try_lock()) {
 
-            string json = fill_people_ogl(poseKeypoints, depth_buffer2);
-
-
-            appendLineToFile(jsonPath, json);
 
 
             viewer.update(peopleObj);
@@ -759,41 +765,42 @@ void run() {
     }
 
 
-    cout << "Finishing JSON output " << jsonPath << endl;
 
-    string info = "\"info\":";
-    info += "\"" + std::to_string(zed.getSVOPosition() + 1) + " processed out of " + std::to_string(zed.getSVONumberOfFrames()) + "\"";
+    string info = "],";
+    info += "\"info\":\""  + std::to_string(zed.getSVOPosition() + 1) + "/" + std::to_string(zed.getSVONumberOfFrames()) + "\"";
+    info += "}";
 //        string camera = "";
 //        camera +=
 
-    string pl = "\"plane\": {";
-    pl += "\"normal\":";
-    pl += "[" + std::to_string(plane.getNormal()[0]) + "," + std::to_string(plane.getNormal()[1]) + "," + std::to_string(plane.getNormal()[2]) + "],";
-    pl += "\"center\":";
-    pl += "[" + std::to_string(plane.getCenter()[0]) + "," + std::to_string(plane.getCenter()[1]) + "," + std::to_string(plane.getCenter()[2]) + "],";
-    pl += "\"extents\":";
-    pl += "[" + std::to_string(plane.getExtents()[0]) + "," + std::to_string(plane.getExtents()[1]) + "]";
-    pl += "}";
+    // string pl = "\"plane\": {";
+    // pl += "\"normal\":";
+    // pl += "[" + std::to_string(plane.getNormal()[0]) + "," + std::to_string(plane.getNormal()[1]) + "," + std::to_string(plane.getNormal()[2]) + "],";
+    // pl += "\"center\":";
+    // pl += "[" + std::to_string(plane.getCenter()[0]) + "," + std::to_string(plane.getCenter()[1]) + "," + std::to_string(plane.getCenter()[2]) + "],";
+    // pl += "\"extents\":";
+    // pl += "[" + std::to_string(plane.getExtents()[0]) + "," + std::to_string(plane.getExtents()[1]) + "]";
+    // pl += "}";
 
-    string pose = "\"pose\": {";
-    pose += "\"translation\":";
-    pose += "[" + std::to_string(camera_pose.getTranslation()[0]) + "," + std::to_string(camera_pose.getTranslation()[1]) + "," + std::to_string(camera_pose.getTranslation()[2]) + "],";
-    pose += "\"rotation\":";
-    pose += "[" + std::to_string(camera_pose.getRotationVector()[0]) + "," + std::to_string(camera_pose.getRotationVector()[1]) + "," + std::to_string(camera_pose.getRotationVector()[2]) + "]";
-    pose += "}";
-
-
-    string final =  "null],\"conf\":{";
-    final += info;
-    final += ",";
-    final += pl;
-    final += ",";
-    final += pose;
-    final += "}}";
+    // string pose = "\"pose\": {";
+    // pose += "\"translation\":";
+    // pose += "[" + std::to_string(camera_pose.getTranslation()[0]) + "," + std::to_string(camera_pose.getTranslation()[1]) + "," + std::to_string(camera_pose.getTranslation()[2]) + "],";
+    // pose += "\"rotation\":";
+    // pose += "[" + std::to_string(camera_pose.getRotationVector()[0]) + "," + std::to_string(camera_pose.getRotationVector()[1]) + "," + std::to_string(camera_pose.getRotationVector()[2]) + "]";
+    // pose += "}";
 
 
-    appendLineToFile(jsonPath, final);
-//    cout << "run ended" << endl;
+    // string final =  "null],\"conf\":{";
+    // final += info;
+    // final += ",";
+    // final += pl;
+    // final += ",";
+    // final += pose;
+    // final += "}}";
+
+
+    appendLineToFile(jsonPath, info);
+
+    cout << "run ended" << endl;
     close();
     quit = true;
     return;
