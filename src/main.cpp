@@ -3,6 +3,8 @@
 #include <string.h>
 #include <iostream>
 #include <fstream>
+#include "format.h"
+
 
 // ZED includes
 #include <sl/Camera.hpp>
@@ -82,63 +84,6 @@ op::Point<int> imageSize, outputSize, netInputSize, netOutputSize;
 op::PoseModel poseModel;
 
 op::WrapperStructOutput opStructOutput;
-//op::BvhSaver saver;
-//op::savePeopleJson();
-
-//op::savePeopleJson(const Array<float> &keypoints, const std::vector<std::vector<std::array<float, _Tp2> > > &candidates, const string &keypointName, const string &fileName, const bool humanReadable)
-
-/*
- *
- * WrapperStructOutput(
- * double verbose - logger
- *
- * std::string writeKeypoint - keypoint output folder ("" for disabled)
- * DataFormat writeKeypointFormat -  keypoint output format - DataFormat::Json (default), DataFormat::Xml and DataFormat::Yml
- *
- * std::string writeJson - OpenPose output in JSON format - 'people' or 'part_candidates' - ("" for disabled)
- * std::string writeCocoJson - Location of COCO  format
- *
- * int writeCocoJsonVariants - Add 1 for body, add 2 for foot, 4 for face, and/or 8 for hands. Use 0 to use all the possible candidates.
- * int writeCocoJsonVariant - experimental
- *
- * std::string writeImages - images folder ("" for disabled)
- * std::string writeImagesFormat -png, jpg etc
- *
- * std::string writeVideo; - ("" for disabled)
- *  double writeVideoFps - fps of recorded video
- * bool writeVideoWithAudio - with Audio?
- *
- *  std::string writeHeatMaps;
- * std::string writeHeatMapsFormat;
- *
- *  std::string writeVideo3D;
- * std::string writeVideoAdam;
- *
- * std::string writeBvh - ("" for disabled)
- *
- *
- *
-        WrapperStructOutput(
-            const double verbose = -1,
-            const std::string& writeKeypoint = "",
-            const DataFormat writeKeypointFormat = DataFormat::Xml,
-            const std::string& writeJson = "",
-            const std::string& writeCocoJson = "",
-            const int writeCocoJsonVariants = 1,
-            const int writeCocoJsonVariant = 1,
-            const std::string& writeImages = "",
-            const std::string& writeImagesFormat = "png",
-            const std::string& writeVideo = "",
-            const double writeVideoFps = -1.,
-            const bool writeVideoWithAudio = false,
-            const std::string& writeHeatMaps = "",
-            const std::string& writeHeatMapsFormat = "png",
-            const std::string& writeVideo3D = "",
-            const std::string& writeVideoAdam = "",
-            const std::string& writeBvh = "",
-            const std::string& udpHost = "",
-            const std::string& udpPort = "8051");
-*/
 
 bool quit = false;
 
@@ -169,6 +114,8 @@ sl::Plane plane;
 #define DISPLAY_BODY_BARYCENTER 0
 #define PATCH_AROUND_KEYPOINT 1
 
+string jsonPath, miniPath, csvPath;
+
 bool initFloorZED(sl::Camera &zed) {
     bool init = false;
 #if ENABLE_FLOOR_PLANE_DETECTION
@@ -179,6 +126,8 @@ bool initFloorZED(sl::Camera &zed) {
     cout << "Looking for the floor plane to initialize the tracking..." << endl;
 
     while (!init && count++ < timeout) {
+
+        cout << "gravving floor" << endl;
         zed.grab();
         init = (zed.findFloorPlane(plane, resetTrackingFloorFrame) == sl::ERROR_CODE::SUCCESS);
         resetTrackingFloorFrame.getInfos();
@@ -193,6 +142,7 @@ bool initFloorZED(sl::Camera &zed) {
     if (init) for (int i = 0; i < 4; i++) zed.grab();
     else cout << "Floor plane not found, starting anyway" << endl;
 #endif
+    zed.setSVOPosition(0);
     return init;
 }
 
@@ -210,7 +160,7 @@ int main(int argc, char **argv) {
     initParameters.coordinate_system = COORDINATE_SYSTEM_RIGHT_HANDED_Y_UP;
     initParameters.sdk_verbose = 0;
     initParameters.depth_stabilization = true;
-    initParameters.svo_real_time_mode = 1;
+    initParameters.svo_real_time_mode = false;
 
     if (std::string(FLAGS_svo_path).find(".svo")) {
         cout << "Opening " << FLAGS_svo_path << endl;
@@ -275,6 +225,8 @@ void startOpenpose() {
     openpose_callback = std::thread(findpose);
 }
 
+int poseCounter;
+
 void findpose() {
 
     while (!ready_to_start) sl::sleep_ms(2); // Waiting for the ZED
@@ -287,13 +239,15 @@ void findpose() {
         //  Estimate poseKeypoints
         if (!need_new_image) { // No new image
             data_in_mtx.lock();
-            need_new_image = true;
             poseExtractorCaffe.forwardPass(netInputArray, imageSize, scaleInputToNetInputs);
             data_in_mtx.unlock();
 
             // Extract poseKeypoints
             data_out_mtx.lock();
             poseKeypoints = poseExtractorCaffe.getPoseKeypoints();
+            poseCounter += 1;
+
+            need_new_image = true;
             data_out_mtx.unlock();
             //STOP_TIMER("OpenPose");
         } else sl::sleep_ms(1);
@@ -328,8 +282,6 @@ sl::float4 getPatchIdx(const int &center_i, const int &center_j, sl::Mat &xyzrgb
 static void appendLineToFile(string filepath, string line)
 {
     std::ofstream file;
-    //can't enable exception now because of gcc bug that raises ios_base::failure with useless message
-    //file.exceptions(file.exceptions() | std::ios::failbit);
     file.open(filepath, std::ios::out | std::ios::app);
     if (file.fail())
         throw std::ios_base::failure(std::strerror(errno));
@@ -349,7 +301,9 @@ static void clearFile(string filepath) {
     file.close();
 }
 string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
-    // Common parameters needed
+
+
+
     const auto numberPeopleDetected = poseKeypoints.getSize(0);
     const auto numberBodyParts = poseKeypoints.getSize(1);
     std::vector<int> partsLink;
@@ -404,14 +358,19 @@ string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
 
     std::vector<sl::float3> vertices;
     std::vector<sl::float3> clr;
-    string json = "";
+
+    vector<string> peopleArr;
+
+    string peopleStr;
+    string csvStr;
+    string miniStr;
 
     if (numberPeopleDetected > 0) {
 
 
+
         for (int person = 0; person < numberPeopleDetected; person++) {
 
-            json += "{";
 
 
             std::map<int, sl::float4> keypoints_position; // 3D + score for each keypoints
@@ -453,33 +412,11 @@ string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
             center_gravity.y /= (float) count;
             center_gravity.z /= (float) count;
 
-            json += "\"-1\":[";
-            json += std::to_string(center_gravity.x);
-            json += ",";
-            json += std::to_string(center_gravity.y);
-            json += ",";
-            json += std::to_string(center_gravity.z);
-            json += "],";
+            string gravity = fmt::format( "[{:.6f},{:.6f},{:.6f},-1]", (float)center_gravity.x, (float)center_gravity.y, (float)center_gravity.z );
+            csvStr += fmt::format( "-1,{:.6f},{:.6f},{:.6f},-2,", (float)center_gravity.x, (float)center_gravity.y, (float)center_gravity.z );
+            miniStr += fmt::format( "-1,{:.6f},{:.6f},{:.6f},-2,", (float)center_gravity.x, (float)center_gravity.y, (float)center_gravity.z );
 
-    #if DISPLAY_BODY_BARYCENTER
-            float size = 0.1;
-            vertices.emplace_back(center_gravity.x, center_gravity.y + size, center_gravity.z);
-            vertices.emplace_back(center_gravity.x, center_gravity.y - size, center_gravity.z);
-            clr.push_back(generateColor(person));
-            clr.push_back(generateColor(person));
-
-            vertices.emplace_back(center_gravity.x + size, center_gravity.y, center_gravity.z);
-            vertices.emplace_back(center_gravity.x - size, center_gravity.y, center_gravity.z);
-            clr.push_back(generateColor(person));
-            clr.push_back(generateColor(person));
-
-            vertices.emplace_back(center_gravity.x, center_gravity.y, center_gravity.z + size);
-            vertices.emplace_back(center_gravity.x, center_gravity.y, center_gravity.z - size);
-            clr.push_back(generateColor(person));
-            clr.push_back(generateColor(person));
-    #endif
-            ///////////////////////////
-
+            vector<string> personArr;
 
             for (int part = 0; part < partsLink.size() - 1; part += 2) {
 
@@ -505,48 +442,49 @@ string fill_people_ogl(op::Array<float> &poseKeypoints, sl::Mat &xyz) {
                     clr.push_back(generateColor(person));
                     clr.push_back(generateColor(person));
 
-                    /*-- add body part --*/
+                    string joint_ = fmt::format( "\"{:d}\":[{:.6f},{:.6f},{:.6f},{:.6f},{:d}]", (int)partSrcIdx, (float)v1.x, (float)v1.y, (float)v1.z, (float)v1.w, (int)partDestIdx );
+                    personArr.push_back(joint_);
 
-                    json += "\"";
-                    json += std::to_string(partSrcIdx);
-                    json += "\":[";
-                    json += std::to_string(v1.x);
-                    json += ",";
-                    json += std::to_string(v1.y);
-                    json += ",";
-                    json += std::to_string(v1.z);
-                    json += ",";
-                    json += std::to_string(v1.w);
-                    json += ",";
-                    json += std::to_string(partDestIdx);
-                    json += "],";
+                    csvStr += fmt::format( "{:d},{:.6f},{:.6f},{:.6f},{:.6f},{:d}", (int)partSrcIdx, (float)v1.x, (float)v1.y, (float)v1.z, (float)v1.w, (int)partDestIdx );
+                    if (part != partsLink.size()-1) csvStr += ",";
                 }
             }
 
-            json = json.substr(0, json.size() - 1);
+            /*-- json --*/
 
-            /*-- end person --*/
+            string joints = "";
+            for (int i = 0; i < personArr.size(); i++ ) {
+                joints += personArr[i];
+                if (i != personArr.size() - 1) {
+                    joints += ",";
+                }
+            }
+            string personStr = "{" + fmt::format( "\"-1\":{:},{:}", gravity, joints) + "}";
+            peopleArr.push_back( personStr );
 
-            json += "},";
 
         }
-        json = json.substr(0, json.size() - 1);
-        json += "],";
-
-        /*-- set openpose people object --*/
-
-        peopleObj.setVert(vertices, clr);
-
-        if (numberPeopleDetected > 0) {
-//        cout << "Num people: " << std::to_string(numberPeopleDetected) << " Num bodyparts: " << std::to_string(numberBodyParts) << " Total Verts: " << std::to_string(vertices.size()) << endl;
+        peopleStr = "[";
+        for (int i = 0; i < peopleArr.size(); i++ ) {
+            if (i != 0) peopleStr += "[";
+            peopleStr += peopleArr[i];
+            if (i != peopleArr.size() - 1) peopleStr += ",";
+            if (i == peopleArr.size() - 1) peopleStr += "],";
         }
+
+
 
     } else {
-        json = "{},";
+        peopleStr = "[],";
     }
 
-    return json;
-//    op::savePeopleJson()
+    /*-- csv --*/
+
+    appendLineToFile(miniPath, miniStr);
+    appendLineToFile(csvPath, csvStr);
+    peopleObj.setVert(vertices, clr);
+
+    return peopleStr;
 }
 
 
@@ -584,7 +522,6 @@ void fill_ptcloud(sl::Mat &xyzrgba) {
 
 
 class OnExit {
-    string jsonPath;
     sl::Camera * zed;
 public:
     OnExit(string path, sl::Camera & z) {
@@ -593,40 +530,6 @@ public:
     }
     ~OnExit() {
 
-        cout << "Finishing JSON output " << jsonPath << endl;
-
-        string info = "\"info\":";
-        info += "\"" + std::to_string(zed->getSVOPosition() + 1) + " processed out of " + std::to_string(zed->getSVONumberOfFrames()) + "\"";
-//        string camera = "";
-//        camera +=
-
-        string pl = "\"plane\": {";
-        pl += "\"normal\":";
-        pl += "[" + std::to_string(plane.getNormal()[0]) + "," + std::to_string(plane.getNormal()[1]) + "," + std::to_string(plane.getNormal()[2]) + "],";
-        pl += "\"center\":";
-        pl += "[" + std::to_string(plane.getCenter()[0]) + "," + std::to_string(plane.getCenter()[1]) + "," + std::to_string(plane.getCenter()[2]) + "],";
-        pl += "\"extents\":";
-        pl += "[" + std::to_string(plane.getExtents()[0]) + "," + std::to_string(plane.getExtents()[1]) + "]";
-        pl += "}";
-
-        string pose = "\"pose\": {";
-        pose += "\"translation\":";
-        pose += "[" + std::to_string(camera_pose.getTranslation()[0]) + "," + std::to_string(camera_pose.getTranslation()[1]) + "," + std::to_string(camera_pose.getTranslation()[2]) + "],";
-        pose += "\"rotation\":";
-        pose += "[" + std::to_string(camera_pose.getRotationVector()[0]) + "," + std::to_string(camera_pose.getRotationVector()[1]) + "," + std::to_string(camera_pose.getRotationVector()[2]) + "]";
-        pose += "}";
-
-
-        string final =  "null],\"conf\":{";
-        final += info;
-        final += ",";
-        final += pl;
-        final += ",";
-        final += pose;
-        final += "}}";
-
-
-        appendLineToFile(jsonPath, final);
     }
 };
 
@@ -661,17 +564,25 @@ void run() {
 
     bool chrono_zed = false;
 
-    string jsonPath = std::string(FLAGS_svo_path);
-    jsonPath =  jsonPath.substr(0,jsonPath.size() - 4) + ".json";
+    string path =   std::string(FLAGS_svo_path).substr(0,jsonPath.size() - 4);
+    jsonPath =  path + ".poses";
+    csvPath =  path + ".poses.csv";
+    miniPath =  path + ".poses.mini";
 //    OnExit WillExit(jsonPath, zed);
 
     clearFile(jsonPath);
+    clearFile(csvPath);
+    clearFile(miniPath);
 
     appendLineToFile(jsonPath, "{\"frames\":[");
 
+    jsonCounter = 0;
+    poseCounter = 0;
+    zed.setSVOPosition(jsonCounter);
 
     while (!quit && zed.getSVOPosition() != zed.getSVONumberOfFrames() - 1) {
         INIT_TIMER
+
         if (need_new_image) {
             if (zed.grab(rt) == SUCCESS) {
 
@@ -681,7 +592,7 @@ void run() {
                 data_out_mtx.unlock();
                 zed.retrieveMeasure(depth_buffer, MEASURE::MEASURE_XYZRGBA, sl::MEM_CPU, image_width, image_height);
 
-                float done = (100.0/zed.getSVONumberOfFrames()) * (zed.getSVOPosition() + 1);
+                float done = (100.0/zed.getSVONumberOfFrames()) * (jsonCounter + 1);
                 float minsDone = (zed.getSVOPosition()/60.0);
                 float minsTotal = (zed.getSVONumberOfFrames()/60.0);
 
@@ -709,9 +620,22 @@ void run() {
                 netInputArray = cvMatToOpInput.createArray(inputImage, scaleInputToNetInputs, netInputSizes);
                 need_new_image = false;
 
-                string json = fill_people_ogl(poseKeypoints, depth_buffer2);
-                appendLineToFile(jsonPath, json);
+                string jsonStrNewLine = fill_people_ogl(poseKeypoints, depth_buffer2);
+
+
+                if (zed.getSVOPosition() == zed.getSVONumberOfFrames() - 1) {
+                    string smaller = jsonStrNewLine.substr(0, jsonStrNewLine.size()-1);
+                    appendLineToFile(jsonPath, smaller);
+
+                    string end = fmt::format( "],\n\"complete\":\"{:d}/{:d}\"\n", (int)jsonCounter, (int)zed.getSVONumberOfFrames() ) + "}";
+                    appendLineToFile(jsonPath, end);
+                } else {
+
+                    appendLineToFile(jsonPath, jsonStrNewLine);
+                }
                 jsonCounter += 1;
+
+
 
                 data_in_mtx.unlock();
 
@@ -719,7 +643,7 @@ void run() {
                 chrono_zed = true;
 
 
-                cout << "writing to " << jsonPath << " " << done << "% " << jsonCounter << "/" << zed.getSVONumberOfFrames() << " " << "frames\r" << flush;
+                cout << "writing to " << jsonPath << " " << done << "% " << poseCounter << ":" <<zed.getSVOPosition() << ":" << jsonCounter << "/" << zed.getSVONumberOfFrames() << "[" << zed.getSVOPosition()-jsonCounter << "] " << "frames " << poseKeypoints.getSize(0) << " persons\r" << flush;
 
 
             } else sl::sleep_ms(1);
@@ -764,43 +688,7 @@ void run() {
         }
     }
 
-
-
-    string info = "],";
-    info += "\"info\":\""  + std::to_string(zed.getSVOPosition() + 1) + "/" + std::to_string(zed.getSVONumberOfFrames()) + "\"";
-    info += "}";
-//        string camera = "";
-//        camera +=
-
-    // string pl = "\"plane\": {";
-    // pl += "\"normal\":";
-    // pl += "[" + std::to_string(plane.getNormal()[0]) + "," + std::to_string(plane.getNormal()[1]) + "," + std::to_string(plane.getNormal()[2]) + "],";
-    // pl += "\"center\":";
-    // pl += "[" + std::to_string(plane.getCenter()[0]) + "," + std::to_string(plane.getCenter()[1]) + "," + std::to_string(plane.getCenter()[2]) + "],";
-    // pl += "\"extents\":";
-    // pl += "[" + std::to_string(plane.getExtents()[0]) + "," + std::to_string(plane.getExtents()[1]) + "]";
-    // pl += "}";
-
-    // string pose = "\"pose\": {";
-    // pose += "\"translation\":";
-    // pose += "[" + std::to_string(camera_pose.getTranslation()[0]) + "," + std::to_string(camera_pose.getTranslation()[1]) + "," + std::to_string(camera_pose.getTranslation()[2]) + "],";
-    // pose += "\"rotation\":";
-    // pose += "[" + std::to_string(camera_pose.getRotationVector()[0]) + "," + std::to_string(camera_pose.getRotationVector()[1]) + "," + std::to_string(camera_pose.getRotationVector()[2]) + "]";
-    // pose += "}";
-
-
-    // string final =  "null],\"conf\":{";
-    // final += info;
-    // final += ",";
-    // final += pl;
-    // final += ",";
-    // final += pose;
-    // final += "}}";
-
-
-    appendLineToFile(jsonPath, info);
-
-    cout << "run ended" << endl;
+    cout << "finished " << jsonPath << " " << jsonCounter << "/" << zed.getSVONumberOfFrames()-1 << " " << "frames" << endl;
     close();
     quit = true;
     return;
