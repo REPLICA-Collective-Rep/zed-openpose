@@ -596,15 +596,13 @@ void run() {
                 float minsDone = (zed.getSVOPosition()/60.0);
                 float minsTotal = (zed.getSVONumberOfFrames()/60.0);
 
-
 //                cout << zed.getSVOPosition() + 1 << " out of " << zed.getSVONumberOfFrames() << endl;
 
                 inputImageRGBA = slMat2cvMat(img_buffer);
                 cv::cvtColor(inputImageRGBA, inputImage, cv::COLOR_RGBA2RGB);
 
 
-                if (FLAGS_depth_display)
-                    zed.retrieveImage(depth_img_buffer, VIEW::VIEW_DEPTH, sl::MEM_CPU, image_width, image_height);
+                if (FLAGS_depth_display) zed.retrieveImage(depth_img_buffer, VIEW::VIEW_DEPTH, sl::MEM_CPU, image_width, image_height);
 
                 if (FLAGS_opencv_display) {
                     data_out_mtx.lock();
